@@ -394,6 +394,198 @@ def is_docx_image_supported(image_path: str) -> bool:
         return False
 
 
+def extract_code_blocks(html_content: str) -> tuple[str, list[dict], list[str]]:
+    """Extract code blocks from HTML and replace with placeholders.
+
+    Returns:
+        Tuple of (modified HTML, list of code block info dicts, list of inline codes)
+    """
+    code_blocks = []
+    inline_codes = []
+
+    def save_code_block(match):
+        block_html = match.group(0)
+        # Remove all span tags (syntax highlighting)
+        clean_content = re.sub(r"<span[^>]*>", "", block_html)
+        clean_content = re.sub(r"</span>", "", clean_content)
+        # Extract the code content
+        code_match = re.search(r"<code[^>]*>(.*?)</code>", clean_content, flags=re.DOTALL | re.IGNORECASE)
+        if code_match:
+            code_text = code_match.group(1)
+            # Decode HTML entities
+            code_text = code_text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+            code_text = code_text.replace("&quot;", '"').replace("&#39;", "'")
+        else:
+            # Fallback: extract text between pre tags
+            pre_match = re.search(r"<pre[^>]*>(.*?)</pre>", clean_content, flags=re.DOTALL | re.IGNORECASE)
+            code_text = pre_match.group(1) if pre_match else ""
+
+        code_blocks.append({
+            "code": code_text.strip(),
+            "placeholder": f"__CODE_BLOCK_PLACEHOLDER_{len(code_blocks)}__"
+        })
+        return f'<p>{code_blocks[-1]["placeholder"]}</p>'
+
+    # Extract code blocks wrapped in codehilite div
+    html_content = re.sub(
+        r"<div[^>]*class=\"codehilite\"[^>]*>\s*<pre[^>]*>.*?</pre>\s*</div>",
+        save_code_block,
+        html_content,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    # Extract standalone pre blocks
+    html_content = re.sub(
+        r"<pre[^>]*>.*?</pre>",
+        save_code_block,
+        html_content,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    # Mark inline code with special markers
+    def mark_inline_code(match):
+        code_text = match.group(1)
+        # Decode HTML entities
+        code_text = code_text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+        code_text = code_text.replace("&quot;", '"').replace("&#39;", "'")
+        inline_codes.append(code_text)
+        return f"⟦CODE⟧{code_text}⟦/CODE⟧"
+
+    html_content = re.sub(
+        r"<code>([^<]*)</code>",
+        mark_inline_code,
+        html_content,
+        flags=re.IGNORECASE,
+    )
+
+    return html_content, code_blocks, inline_codes
+
+
+def add_code_block_to_document(paragraph, code_text: str, config: Config) -> None:
+    """Replace a placeholder paragraph with properly formatted code block."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    code_style = config.get_style("code")
+    font_name = code_style.font_name
+    font_size = code_style.font_size
+    bg_color = code_style.background_color or "f5f5f5"
+
+    # Clear existing content
+    paragraph.clear()
+
+    # Add code lines
+    lines = code_text.split("\n")
+    for i, line in enumerate(lines):
+        run = paragraph.add_run(line)
+        run.font.name = font_name
+        run.font.size = Pt(font_size)
+        # Set East Asian font
+        run._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
+
+        # Add line break except for last line
+        if i < len(lines) - 1:
+            run.add_break()
+
+    # Set paragraph formatting
+    pf = paragraph.paragraph_format
+    pf.space_before = Pt(6)
+    pf.space_after = Pt(6)
+    pf.line_spacing = 1.0
+
+    # Add shading (background color)
+    pPr = paragraph._element.get_or_add_pPr()
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), bg_color)
+    pPr.append(shd)
+
+
+def replace_code_block_placeholders(document, code_blocks: list[dict], config: Config) -> None:
+    """Replace code block placeholders in document with formatted code."""
+    if not code_blocks:
+        return
+
+    placeholder_map = {block["placeholder"]: block["code"] for block in code_blocks}
+
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if text in placeholder_map:
+            add_code_block_to_document(paragraph, placeholder_map[text], config)
+            print_info(f"Added code block ({len(placeholder_map[text])} chars)")
+
+
+def style_inline_code_in_document(document, config: Config) -> None:
+    """Find and style inline code marked with special markers."""
+    code_style = config.get_style("code")
+    body_style = config.get_style("body")
+    code_font_name = code_style.font_name
+    code_font_size = code_style.font_size
+    bg_color = code_style.background_color or "f5f5f5"
+
+    inline_code_pattern = re.compile(r"⟦CODE⟧(.*?)⟦/CODE⟧")
+
+    for paragraph in document.paragraphs:
+        # Check if paragraph contains inline code markers
+        full_text = paragraph.text
+        if "⟦CODE⟧" not in full_text:
+            continue
+
+        # We need to rebuild the paragraph with styled inline code
+        matches = list(inline_code_pattern.finditer(full_text))
+        if not matches:
+            continue
+
+        # Clear paragraph
+        paragraph.clear()
+
+        # Process text and add runs
+        last_end = 0
+        for match in matches:
+            # Add text before the code (with body style)
+            if match.start() > last_end:
+                before_text = full_text[last_end:match.start()]
+                if before_text:
+                    run = paragraph.add_run(before_text)
+                    run.font.name = body_style.font_name
+                    run.font.size = Pt(body_style.font_size)
+                    # Set East Asian font for Chinese
+                    rPr = run._element.get_or_add_rPr()
+                    rFonts = rPr.get_or_add_rFonts()
+                    rFonts.set(qn("w:eastAsia"), body_style.font_name)
+
+            # Add the code with special styling
+            code_text = match.group(1)
+            code_run = paragraph.add_run(code_text)
+            code_run.font.name = code_font_name
+            code_run.font.size = Pt(code_font_size)
+            # Set East Asian font for code
+            code_rPr = code_run._element.get_or_add_rPr()
+            code_rFonts = code_rPr.get_or_add_rFonts()
+            code_rFonts.set(qn("w:eastAsia"), code_font_name)
+            # Add shading to run
+            shd = OxmlElement("w:shd")
+            shd.set(qn("w:val"), "clear")
+            shd.set(qn("w:color"), "auto")
+            shd.set(qn("w:fill"), bg_color)
+            code_rPr.append(shd)
+
+            last_end = match.end()
+
+        # Add remaining text (with body style)
+        if last_end < len(full_text):
+            remaining_text = full_text[last_end:]
+            if remaining_text:
+                run = paragraph.add_run(remaining_text)
+                run.font.name = body_style.font_name
+                run.font.size = Pt(body_style.font_size)
+                # Set East Asian font for Chinese
+                rPr = run._element.get_or_add_rPr()
+                rFonts = rPr.get_or_add_rFonts()
+                rFonts.set(qn("w:eastAsia"), body_style.font_name)
+
+
 def filter_unrecognized_images(html_content: str) -> str:
     """Remove image tags that docx cannot recognize."""
     img_pattern = re.compile(r"<img\b[^>]*>", flags=re.IGNORECASE)
@@ -468,8 +660,9 @@ def apply_style_to_run(run, style_config: StyleConfig) -> None:
     """Apply style configuration to run."""
     run.font.name = style_config.font_name
     run.font.size = Pt(style_config.font_size)
-    run.font.bold = style_config.bold
-    run.font.italic = style_config.italic
+    # Preserve existing bold/italic formatting from HTML conversion
+    run.font.bold = run.font.bold or style_config.bold
+    run.font.italic = run.font.italic or style_config.italic
 
     r, g, b = hex_to_rgb(style_config.color)
     run.font.color.rgb = RGBColor(r, g, b)
@@ -540,11 +733,28 @@ def get_heading_level(paragraph) -> int | None:
     return None
 
 
+def is_code_block_paragraph(paragraph) -> bool:
+    """Check if paragraph is a code block (has shading)."""
+    pPr = paragraph._element.pPr
+    if pPr is not None:
+        shd = pPr.find(qn("w:shd"))
+        if shd is not None:
+            fill = shd.get(qn("w:fill"))
+            # Check if it has a background fill (code blocks have gray background)
+            if fill and fill.lower() not in ("auto", "ffffff", "none"):
+                return True
+    return False
+
+
 def apply_styles_to_document(document, config: Config) -> None:
     """Apply style configuration to document."""
     numbering = HeadingNumbering()
 
     for paragraph in document.paragraphs:
+        # Skip code block paragraphs (they already have their own styling)
+        if is_code_block_paragraph(paragraph):
+            continue
+
         heading_level = get_heading_level(paragraph)
 
         if heading_level is not None:
@@ -661,6 +871,13 @@ def convert(
     # Process HTML images
     html_content = sanitize_html_images(html_content, config)
 
+    # Extract code blocks (to bypass html4docx's broken handling)
+    html_content, code_blocks, inline_codes = extract_code_blocks(html_content)
+    if code_blocks:
+        print_info(f"Extracted {len(code_blocks)} code blocks")
+    if inline_codes:
+        print_info(f"Found {len(inline_codes)} inline code snippets")
+
     # Create Word document
     document = Document()
     new_parser = HtmlToDocx()
@@ -681,12 +898,20 @@ def convert(
             new_parser = HtmlToDocx()
             new_parser.add_html_to_document(html_without_images, document)
 
+    # Replace code block placeholders
+    if code_blocks:
+        replace_code_block_placeholders(document, code_blocks, config)
+
     # Replace formula placeholders
     if formulas:
         replace_formula_placeholders(document, formulas)
 
     # Apply styles
     apply_styles_to_document(document, config)
+
+    # Style inline code (must be after apply_styles_to_document to avoid being overwritten)
+    if inline_codes:
+        style_inline_code_in_document(document, config)
 
     # Resize images
     resize_images_in_document(document, config.max_image_width_inches)
