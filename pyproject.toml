@@ -1,0 +1,90 @@
+[project]
+name = "md2word"
+version = "0.1.0"
+description = "Convert Markdown files to Word documents with extensive customization"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "md2word contributors" }
+]
+requires-python = ">=3.10"
+keywords = ["markdown", "word", "docx", "converter", "document"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Documentation",
+    "Topic :: Office/Business :: Office Suites",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+dependencies = [
+    "markdown2>=2.4.0",
+    "python-docx>=1.0.0",
+    "html-for-docx>=1.0.0",
+    "httpx>=0.25.0",
+    "Pillow>=10.0.0",
+    "latex2mathml>=3.0.0",
+    "mathml2omml>=0.0.2",
+    "lxml>=5.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/md2word/md2word"
+Documentation = "https://github.com/md2word/md2word#readme"
+Repository = "https://github.com/md2word/md2word"
+Issues = "https://github.com/md2word/md2word/issues"
+
+[project.scripts]
+md2word = "md2word.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/md2word"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.8.0",
+    "ty>=0.0.1a6",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

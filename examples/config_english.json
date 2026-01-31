@@ -1,0 +1,111 @@
+{
+    "document": {
+        "default_font": "Times New Roman",
+        "page_width_inches": 8.5,
+        "page_height_inches": 11,
+        "max_image_width_inches": 6.0
+    },
+    "styles": {
+        "heading_1": {
+            "font_name": "Arial",
+            "font_size": 24,
+            "bold": true,
+            "italic": false,
+            "color": "000000",
+            "alignment": "center",
+            "line_spacing_rule": "exact",
+            "line_spacing_value": 32,
+            "first_line_indent": 0,
+            "space_before": 24,
+            "space_after": 12,
+            "numbering_format": "chapter"
+        },
+        "heading_2": {
+            "font_name": "Arial",
+            "font_size": 18,
+            "bold": true,
+            "italic": false,
+            "color": "333333",
+            "alignment": "left",
+            "line_spacing_rule": "exact",
+            "line_spacing_value": 28,
+            "first_line_indent": 0,
+            "space_before": 18,
+            "space_after": 6,
+            "numbering_format": "section"
+        },
+        "heading_3": {
+            "font_name": "Arial",
+            "font_size": 14,
+            "bold": true,
+            "italic": false,
+            "color": "333333",
+            "alignment": "left",
+            "line_spacing_rule": "multiple",
+            "line_spacing_value": 1.5,
+            "first_line_indent": 0,
+            "space_before": 12,
+            "space_after": 6,
+            "numbering_format": "arabic"
+        },
+        "body": {
+            "font_name": "Times New Roman",
+            "font_size": 12,
+            "bold": false,
+            "italic": false,
+            "color": "000000",
+            "alignment": "justify",
+            "line_spacing_rule": "multiple",
+            "line_spacing_value": 1.5,
+            "first_line_indent": 2,
+            "space_before": 0,
+            "space_after": 6
+        },
+        "code": {
+            "font_name": "Consolas",
+            "font_size": 10,
+            "bold": false,
+            "italic": false,
+            "color": "333333",
+            "alignment": "left",
+            "line_spacing_rule": "single",
+            "first_line_indent": 0,
+            "background_color": "f5f5f5"
+        },
+        "blockquote": {
+            "font_name": "Times New Roman",
+            "font_size": 11,
+            "bold": false,
+            "italic": true,
+            "color": "666666",
+            "alignment": "left",
+            "line_spacing_rule": "multiple",
+            "line_spacing_value": 1.5,
+            "left_indent": 0.5,
+            "first_line_indent": 0
+        },
+        "table_header": {
+            "font_name": "Arial",
+            "font_size": 11,
+            "bold": true,
+            "italic": false,
+            "color": "000000",
+            "alignment": "center",
+            "line_spacing_rule": "single"
+        },
+        "table_cell": {
+            "font_name": "Times New Roman",
+            "font_size": 11,
+            "bold": false,
+            "italic": false,
+            "color": "000000",
+            "alignment": "left",
+            "line_spacing_rule": "single"
+        }
+    },
+    "image": {
+        "local_dir": "./images",
+        "download_timeout": 30,
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+}
