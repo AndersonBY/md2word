@@ -1,5 +1,7 @@
 # md2word
 
+[中文文档](README_zh.md) | English
+
 Convert Markdown files to Word documents (.docx) with extensive customization options.
 
 ## Features

@@ -1,5 +1,7 @@
 # md2word
 
+[English](README.md) | 中文文档
+
 将 Markdown 文件转换为 Word 文档（.docx），支持丰富的自定义配置选项。
 
 ## 功能特性
