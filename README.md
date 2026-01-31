@@ -170,6 +170,41 @@ Create a `config.json` file to customize document styles.
 
 Custom format strings are also supported using `{n}` for Arabic numbers and `{cn}` for Chinese numbers.
 
+### Table Configuration
+
+Configure table appearance in the `table` section:
+
+```json
+{
+    "table": {
+        "border_style": "single",
+        "border_color": "000000",
+        "border_width": 4,
+        "header_background_color": "D9E2F3",
+        "cell_background_color": null,
+        "alternating_row_color": "F2F2F2",
+        "cell_padding_top": 2,
+        "cell_padding_bottom": 2,
+        "cell_padding_left": 5,
+        "cell_padding_right": 5,
+        "width_mode": "full",
+        "width_inches": null
+    }
+}
+```
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `border_style` | string | Border style: `single`/`double`/`dotted`/`dashed`/`none` |
+| `border_color` | string | Border color (hex, e.g., "000000") |
+| `border_width` | number | Border width in 1/8 points (4 = 0.5pt, 8 = 1pt) |
+| `header_background_color` | string | Header row background color (hex) |
+| `cell_background_color` | string | Cell background color (hex) |
+| `alternating_row_color` | string | Alternating row color for zebra striping (hex) |
+| `cell_padding_*` | number | Cell padding in points (top/bottom/left/right) |
+| `width_mode` | string | Table width mode: `auto`/`full`/`fixed` |
+| `width_inches` | number | Fixed width in inches (when `width_mode` is "fixed") |
+
 ### Chinese Font Sizes
 
 | Name | Points | Name | Points |

@@ -117,6 +117,20 @@
             "line_spacing_rule": "single"
         }
     },
+    "table": {
+        "border_style": "single",
+        "border_color": "000000",
+        "border_width": 4,
+        "header_background_color": "D9E2F3",
+        "cell_background_color": null,
+        "alternating_row_color": "F2F2F2",
+        "cell_padding_top": 2,
+        "cell_padding_bottom": 2,
+        "cell_padding_left": 5,
+        "cell_padding_right": 5,
+        "width_mode": "full",
+        "width_inches": null
+    },
     "image": {
         "local_dir": "./images",
         "download_timeout": 30,

@@ -23,7 +23,7 @@ from docx.shared import Inches, Pt, RGBColor
 from html4docx import HtmlToDocx
 from PIL import Image
 
-from .config import Config, StyleConfig
+from .config import Config, StyleConfig, TableConfig
 from .latex import extract_latex_formulas, replace_formula_placeholders
 
 if TYPE_CHECKING:
@@ -859,9 +859,54 @@ def apply_styles_to_document(document, config: Config) -> None:
             apply_style_to_run(run, style_config)
 
     # Process tables
+    apply_table_styles(document, config)
+
+
+def apply_table_styles(document, config: Config) -> None:
+    """Apply table styling from configuration."""
+    from docx.shared import Twips
+
+    table_config = config.table
+
+    # Border style mapping
+    border_style_map = {
+        "single": "single",
+        "double": "double",
+        "dotted": "dotted",
+        "dashed": "dashed",
+        "none": "nil",
+    }
+    border_val = border_style_map.get(table_config.border_style, "single")
+
     for table in document.tables:
+        # Set table width
+        if table_config.width_mode == "full":
+            table.autofit = False
+            table.allow_autofit = False
+            # Set table width to 100% of page width
+            tbl = table._tbl
+            tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement("w:tblPr")
+            tblW = OxmlElement("w:tblW")
+            tblW.set(qn("w:w"), "5000")
+            tblW.set(qn("w:type"), "pct")  # percentage
+            tblPr.append(tblW)
+            if tbl.tblPr is None:
+                tbl.insert(0, tblPr)
+        elif table_config.width_mode == "fixed" and table_config.width_inches:
+            table.autofit = False
+            tbl = table._tbl
+            tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement("w:tblPr")
+            tblW = OxmlElement("w:tblW")
+            tblW.set(qn("w:w"), str(int(table_config.width_inches * 1440)))  # inches to twips
+            tblW.set(qn("w:type"), "dxa")
+            tblPr.append(tblW)
+            if tbl.tblPr is None:
+                tbl.insert(0, tblPr)
+
+        # Apply borders and cell styles
         for i, row in enumerate(table.rows):
-            for cell in row.cells:
+            for j, cell in enumerate(row.cells):
+                # Apply text styles
                 for paragraph in cell.paragraphs:
                     if i == 0:
                         style_config = config.get_style("table_header")
@@ -871,6 +916,57 @@ def apply_styles_to_document(document, config: Config) -> None:
                     apply_style_to_paragraph(paragraph, style_config)
                     for run in paragraph.runs:
                         apply_style_to_run(run, style_config)
+
+                # Get or create cell properties
+                tc = cell._tc
+                tcPr = tc.get_or_add_tcPr()
+
+                # Apply cell background color
+                if i == 0 and table_config.header_background_color:
+                    shd = OxmlElement("w:shd")
+                    shd.set(qn("w:val"), "clear")
+                    shd.set(qn("w:color"), "auto")
+                    shd.set(qn("w:fill"), table_config.header_background_color)
+                    tcPr.append(shd)
+                elif i > 0:
+                    # Alternating row colors
+                    if table_config.alternating_row_color and i % 2 == 0:
+                        shd = OxmlElement("w:shd")
+                        shd.set(qn("w:val"), "clear")
+                        shd.set(qn("w:color"), "auto")
+                        shd.set(qn("w:fill"), table_config.alternating_row_color)
+                        tcPr.append(shd)
+                    elif table_config.cell_background_color:
+                        shd = OxmlElement("w:shd")
+                        shd.set(qn("w:val"), "clear")
+                        shd.set(qn("w:color"), "auto")
+                        shd.set(qn("w:fill"), table_config.cell_background_color)
+                        tcPr.append(shd)
+
+                # Apply cell margins/padding
+                tcMar = OxmlElement("w:tcMar")
+                for side, value in [
+                    ("top", table_config.cell_padding_top),
+                    ("bottom", table_config.cell_padding_bottom),
+                    ("left", table_config.cell_padding_left),
+                    ("right", table_config.cell_padding_right),
+                ]:
+                    margin = OxmlElement(f"w:{side}")
+                    margin.set(qn("w:w"), str(int(value * 20)))  # points to twips
+                    margin.set(qn("w:type"), "dxa")
+                    tcMar.append(margin)
+                tcPr.append(tcMar)
+
+                # Apply cell borders
+                if border_val != "nil":
+                    tcBorders = OxmlElement("w:tcBorders")
+                    for side in ["top", "left", "bottom", "right"]:
+                        border = OxmlElement(f"w:{side}")
+                        border.set(qn("w:val"), border_val)
+                        border.set(qn("w:sz"), str(table_config.border_width))
+                        border.set(qn("w:color"), table_config.border_color)
+                        tcBorders.append(border)
+                    tcPr.append(tcBorders)
 
 
 def add_toc(document, title: str = "目录", max_level: int = 3) -> None:

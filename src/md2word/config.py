@@ -111,6 +111,66 @@ class StyleConfig:
 
 
 @dataclass
+class TableConfig:
+    """Table style configuration."""
+
+    # Border settings
+    border_style: str = "single"  # single, double, dotted, dashed, none
+    border_color: str = "000000"
+    border_width: int = 4  # in eighths of a point (4 = 0.5pt, 8 = 1pt)
+
+    # Background colors
+    header_background_color: str | None = None  # e.g., "D9E2F3" for light blue
+    cell_background_color: str | None = None
+    alternating_row_color: str | None = None  # For zebra striping
+
+    # Cell padding (in points)
+    cell_padding_top: float = 2
+    cell_padding_bottom: float = 2
+    cell_padding_left: float = 5
+    cell_padding_right: float = 5
+
+    # Table width
+    width_mode: str = "auto"  # auto, full (100% page width), fixed
+    width_inches: float | None = None  # Used when width_mode is "fixed"
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TableConfig:
+        """Create TableConfig from dictionary."""
+        return cls(
+            border_style=data.get("border_style", "single"),
+            border_color=data.get("border_color", "000000"),
+            border_width=data.get("border_width", 4),
+            header_background_color=data.get("header_background_color"),
+            cell_background_color=data.get("cell_background_color"),
+            alternating_row_color=data.get("alternating_row_color"),
+            cell_padding_top=data.get("cell_padding_top", 2),
+            cell_padding_bottom=data.get("cell_padding_bottom", 2),
+            cell_padding_left=data.get("cell_padding_left", 5),
+            cell_padding_right=data.get("cell_padding_right", 5),
+            width_mode=data.get("width_mode", "auto"),
+            width_inches=data.get("width_inches"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "border_style": self.border_style,
+            "border_color": self.border_color,
+            "border_width": self.border_width,
+            "header_background_color": self.header_background_color,
+            "cell_background_color": self.cell_background_color,
+            "alternating_row_color": self.alternating_row_color,
+            "cell_padding_top": self.cell_padding_top,
+            "cell_padding_bottom": self.cell_padding_bottom,
+            "cell_padding_left": self.cell_padding_left,
+            "cell_padding_right": self.cell_padding_right,
+            "width_mode": self.width_mode,
+            "width_inches": self.width_inches,
+        }
+
+
+@dataclass
 class Config:
     """Global configuration for md2word converter."""
 
@@ -122,6 +182,7 @@ class Config:
     image_download_timeout: int = 30
     image_user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     styles: dict[str, StyleConfig] = field(default_factory=dict)
+    table: TableConfig = field(default_factory=TableConfig)
 
     @classmethod
     def from_file(cls, config_path: str | Path) -> Config:
@@ -159,6 +220,11 @@ class Config:
         for style_name, style_config in styles_data.items():
             config.styles[style_name] = StyleConfig.from_dict(style_config, config.default_font)
 
+        # Table configuration
+        table_data = data.get("table", {})
+        if table_data:
+            config.table = TableConfig.from_dict(table_data)
+
         return config
 
     def get_style(self, style_name: str) -> StyleConfig:
@@ -180,6 +246,7 @@ class Config:
                 "user_agent": self.image_user_agent,
             },
             "styles": {name: style.to_dict() for name, style in self.styles.items()},
+            "table": self.table.to_dict(),
         }
 
     def save(self, path: str | Path) -> None:

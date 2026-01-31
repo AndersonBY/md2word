@@ -170,6 +170,41 @@ md2word.convert_file("input.md", "output.docx", config=config)
 
 也支持自定义格式字符串，使用 `{n}` 表示阿拉伯数字，`{cn}` 表示中文数字。例如：`"第{cn}部分"` 会生成 "第一部分"、"第二部分"...
 
+### 表格配置
+
+在 `table` 部分配置表格外观：
+
+```json
+{
+    "table": {
+        "border_style": "single",
+        "border_color": "000000",
+        "border_width": 4,
+        "header_background_color": "D9E2F3",
+        "cell_background_color": null,
+        "alternating_row_color": "F2F2F2",
+        "cell_padding_top": 2,
+        "cell_padding_bottom": 2,
+        "cell_padding_left": 5,
+        "cell_padding_right": 5,
+        "width_mode": "full",
+        "width_inches": null
+    }
+}
+```
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `border_style` | string | 边框样式：`single`/`double`/`dotted`/`dashed`/`none` |
+| `border_color` | string | 边框颜色（十六进制，如 "000000"） |
+| `border_width` | number | 边框宽度，单位为 1/8 磅（4 = 0.5磅，8 = 1磅） |
+| `header_background_color` | string | 表头背景色（十六进制） |
+| `cell_background_color` | string | 单元格背景色（十六进制） |
+| `alternating_row_color` | string | 斑马纹颜色（十六进制） |
+| `cell_padding_*` | number | 单元格内边距，单位为磅（top/bottom/left/right） |
+| `width_mode` | string | 表格宽度模式：`auto`/`full`/`fixed` |
+| `width_inches` | number | 固定宽度，单位为英寸（当 `width_mode` 为 "fixed" 时使用） |
+
 ### 中文字号对照表
 
 | 字号 | 磅值 | 字号 | 磅值 |
