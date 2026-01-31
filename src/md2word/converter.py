@@ -394,6 +394,88 @@ def is_docx_image_supported(image_path: str) -> bool:
         return False
 
 
+def extract_blockquotes(html_content: str) -> tuple[str, list[str]]:
+    """Extract blockquotes from HTML and mark with placeholders.
+
+    Returns:
+        Tuple of (modified HTML, list of blockquote texts)
+    """
+    blockquotes = []
+
+    def save_blockquote(match):
+        block_html = match.group(0)
+        # Extract text content from blockquote
+        # Remove HTML tags but keep the text
+        text = re.sub(r"<[^>]+>", "", block_html)
+        text = text.strip()
+        # Decode HTML entities
+        text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+        text = text.replace("&quot;", '"').replace("&#39;", "'")
+
+        blockquotes.append(text)
+        placeholder = f"__BLOCKQUOTE_PLACEHOLDER_{len(blockquotes) - 1}__"
+        return f"<p>{placeholder}</p>"
+
+    # Extract blockquotes
+    html_content = re.sub(
+        r"<blockquote[^>]*>.*?</blockquote>",
+        save_blockquote,
+        html_content,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    return html_content, blockquotes
+
+
+def replace_blockquote_placeholders(document, blockquotes: list[str], config: Config) -> None:
+    """Replace blockquote placeholders with styled paragraphs."""
+    if not blockquotes:
+        return
+
+    style_config = config.get_style("blockquote")
+
+    for i, paragraph in enumerate(document.paragraphs):
+        text = paragraph.text.strip()
+        for idx, quote_text in enumerate(blockquotes):
+            placeholder = f"__BLOCKQUOTE_PLACEHOLDER_{idx}__"
+            if text == placeholder:
+                # Clear and rebuild paragraph
+                paragraph.clear()
+                run = paragraph.add_run(quote_text)
+
+                # Apply blockquote style to run
+                run.font.name = style_config.font_name
+                run.font.size = Pt(style_config.font_size)
+                run.font.italic = style_config.italic
+                run.font.bold = style_config.bold
+
+                # Set color
+                r, g, b = hex_to_rgb(style_config.color)
+                run.font.color.rgb = RGBColor(r, g, b)
+
+                # Set East Asian font
+                rPr = run._element.get_or_add_rPr()
+                rFonts = rPr.get_or_add_rFonts()
+                rFonts.set(qn("w:eastAsia"), style_config.font_name)
+
+                # Apply paragraph formatting
+                apply_style_to_paragraph(paragraph, style_config)
+
+                # Add left border for blockquote visual effect
+                pPr = paragraph._element.get_or_add_pPr()
+                pBdr = OxmlElement("w:pBdr")
+                left_border = OxmlElement("w:left")
+                left_border.set(qn("w:val"), "single")
+                left_border.set(qn("w:sz"), "24")  # Border width
+                left_border.set(qn("w:space"), "4")  # Space between border and text
+                left_border.set(qn("w:color"), style_config.color)
+                pBdr.append(left_border)
+                pPr.append(pBdr)
+
+                print_info(f"Styled blockquote ({len(quote_text)} chars)")
+                break
+
+
 def extract_code_blocks(html_content: str) -> tuple[str, list[dict], list[str]]:
     """Extract code blocks from HTML and replace with placeholders.
 
@@ -878,6 +960,11 @@ def convert(
     if inline_codes:
         print_info(f"Found {len(inline_codes)} inline code snippets")
 
+    # Extract blockquotes
+    html_content, blockquotes = extract_blockquotes(html_content)
+    if blockquotes:
+        print_info(f"Extracted {len(blockquotes)} blockquotes")
+
     # Create Word document
     document = Document()
     new_parser = HtmlToDocx()
@@ -901,6 +988,10 @@ def convert(
     # Replace code block placeholders
     if code_blocks:
         replace_code_block_placeholders(document, code_blocks, config)
+
+    # Replace blockquote placeholders
+    if blockquotes:
+        replace_blockquote_placeholders(document, blockquotes, config)
 
     # Replace formula placeholders
     if formulas:
