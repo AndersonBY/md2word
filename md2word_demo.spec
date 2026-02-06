@@ -2,7 +2,11 @@
 
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+_spec_path = globals().get("__file__")
+if _spec_path:
+    ROOT = Path(_spec_path).resolve().parent
+else:
+    ROOT = Path.cwd()
 APP_PATH = ROOT / "examples" / "desktop_app" / "app.py"
 INDEX_HTML = ROOT / "examples" / "desktop_app" / "index.html"
 
