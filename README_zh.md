@@ -34,6 +34,11 @@ uvx md2word input.md
 pip install md2word
 ```
 
+### 可直接下载的桌面版（无需安装 Python）
+
+如果你更喜欢图形界面且不想安装 Python，可以在 GitHub Releases 页面下载已打包的可执行文件。
+按平台（Windows/macOS/Linux）选择对应的桌面版压缩包，解压后直接运行即可。
+
 ## 使用方法
 
 ### 命令行

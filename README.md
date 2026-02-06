@@ -34,6 +34,11 @@ uvx md2word input.md
 pip install md2word
 ```
 
+### Downloadable desktop app (no Python required)
+
+If you prefer a GUI and do not want to install Python, you can download prebuilt executables from the GitHub Releases page.
+Look for the desktop app artifacts for Windows, macOS, and Linux, then unzip and run.
+
 ## Usage
 
 ### Command Line
