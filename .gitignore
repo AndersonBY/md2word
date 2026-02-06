@@ -27,6 +27,8 @@ wheels/
 # PyInstaller
 *.manifest
 *.spec
+!md2word_demo.spec
+!md2word_demo_console.spec
 
 # Installer logs
 pip-log.txt

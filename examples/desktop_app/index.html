@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>md2word Desktop Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-slate-50 text-slate-900">
+    <div class="max-w-6xl mx-auto p-6">
+      <header class="mb-6">
+        <h1 class="text-2xl font-semibold">md2word 轻量桌面 Demo</h1>
+        <p class="text-slate-600 mt-1">本地运行，无额外依赖；Markdown 转 Word，并提供可视化完整配置界面</p>
+      </header>
+
+      <div class="grid gap-6 lg:grid-cols-2">
+        <section class="bg-white rounded-xl shadow p-5">
+          <div class="grid gap-4">
+            <label class="block">
+              <span class="text-sm font-medium">Markdown 内容</span>
+              <textarea id="markdown" rows="12" class="mt-2 w-full rounded-lg border border-slate-200 p-3 font-mono text-sm"></textarea>
+            </label>
+
+            <div class="flex flex-wrap gap-3 items-center">
+              <label class="inline-flex items-center gap-2">
+                <input id="toc" type="checkbox" class="h-4 w-4" />
+                <span class="text-sm">生成目录 (TOC)</span>
+              </label>
+              <label class="inline-flex items-center gap-2">
+                <span class="text-sm text-slate-600">目录标题</span>
+                <input id="tocTitle" type="text" value="目录" class="h-9 rounded border border-slate-200 px-2 text-sm" />
+              </label>
+              <label class="inline-flex items-center gap-2">
+                <span class="text-sm text-slate-600">目录层级</span>
+                <input id="tocLevel" type="number" min="1" max="9" value="3" class="h-9 w-20 rounded border border-slate-200 px-2 text-sm" />
+              </label>
+            </div>
+
+            <div class="flex flex-wrap gap-3 items-center">
+              <input id="fileInput" type="file" accept=".md,.markdown,.txt" class="text-sm" />
+              <button id="loadFile" class="rounded bg-slate-200 px-3 py-2 text-sm">加载文件到编辑器</button>
+            </div>
+
+            <div class="flex flex-wrap gap-3 items-center">
+              <button id="convertBtn" class="rounded bg-blue-600 px-4 py-2 text-white text-sm">生成 Word</button>
+              <span id="status" class="text-sm text-slate-600"></span>
+            </div>
+          </div>
+        </section>
+
+        <section class="bg-white rounded-xl shadow p-5">
+          <div class="flex flex-wrap gap-2 mb-4">
+            <button id="loadDefault" class="rounded bg-slate-200 px-3 py-2 text-sm">重置为默认</button>
+            <button id="exportConfig" class="rounded bg-slate-800 px-3 py-2 text-sm text-white">导出配置 JSON</button>
+          </div>
+
+          <details open class="mb-4">
+            <summary class="cursor-pointer text-sm font-semibold">文档配置</summary>
+            <div id="documentFields" class="mt-3 grid gap-3"></div>
+          </details>
+
+          <details class="mb-4">
+            <summary class="cursor-pointer text-sm font-semibold">图片配置</summary>
+            <div id="imageFields" class="mt-3 grid gap-3"></div>
+          </details>
+
+          <details class="mb-4">
+            <summary class="cursor-pointer text-sm font-semibold">表格配置</summary>
+            <div id="tableFields" class="mt-3 grid gap-3"></div>
+          </details>
+
+          <details open class="mb-4">
+            <summary class="cursor-pointer text-sm font-semibold">样式配置</summary>
+            <div class="mt-3 flex flex-wrap gap-2 items-center">
+              <input id="newStyleName" type="text" placeholder="新增样式名 (如 heading_4)" class="h-9 rounded border border-slate-200 px-2 text-sm" />
+              <button id="addStyle" class="rounded bg-slate-200 px-3 py-2 text-sm">新增样式</button>
+            </div>
+            <div id="stylesContainer" class="mt-4 grid gap-4"></div>
+          </details>
+
+          <details>
+            <summary class="cursor-pointer text-sm font-semibold">配置 JSON</summary>
+            <div class="mt-3 grid gap-3">
+              <textarea id="configJson" rows="8" class="w-full rounded border border-slate-200 p-2 font-mono text-xs"></textarea>
+              <div class="flex flex-wrap gap-2">
+                <button id="importConfig" class="rounded bg-slate-200 px-3 py-2 text-sm">从 JSON 导入</button>
+                <span id="configStatus" class="text-sm text-slate-600"></span>
+              </div>
+            </div>
+          </details>
+        </section>
+      </div>
+
+      <section class="bg-white rounded-xl shadow p-5 mt-6">
+        <h2 class="text-lg font-semibold mb-2">示例 Markdown</h2>
+        <pre id="example" class="text-sm whitespace-pre-wrap bg-slate-100 rounded p-3 font-mono"></pre>
+        <button id="useExample" class="mt-3 rounded bg-slate-800 px-3 py-2 text-sm text-white">填充示例</button>
+      </section>
+    </div>
+
+    <script>
+      const exampleText = `# 示例标题\n\n这是一个**粗体**与*斜体*示例。\n\n## 小节\n\n- 列表项 A\n- 列表项 B\n\n> 这是引用块\n\n\`\`\`python\nprint("Hello, md2word")\n\`\`\`\n\n$E = mc^2$\n`;
+
+      const markdownEl = document.getElementById("markdown");
+      const statusEl = document.getElementById("status");
+      const fileInput = document.getElementById("fileInput");
+      const configStatusEl = document.getElementById("configStatus");
+
+      document.getElementById("example").textContent = exampleText;
+
+      document.getElementById("useExample").addEventListener("click", () => {
+        markdownEl.value = exampleText;
+      });
+
+      document.getElementById("loadFile").addEventListener("click", async () => {
+        if (!fileInput.files || !fileInput.files[0]) {
+          statusEl.textContent = "请选择一个 .md 文件";
+          return;
+        }
+        const file = fileInput.files[0];
+        const text = await file.text();
+        markdownEl.value = text;
+        statusEl.textContent = `已加载: ${file.name}`;
+      });
+
+      let defaultConfig = null;
+      let currentConfig = null;
+
+      const docFields = [
+        { key: "default_font", label: "默认字体", type: "text" },
+        { key: "page_width_inches", label: "页面宽度 (in)", type: "number" },
+        { key: "page_height_inches", label: "页面高度 (in)", type: "number" },
+        { key: "max_image_width_inches", label: "图片最大宽度 (in)", type: "number" },
+      ];
+
+      const imageFields = [
+        { key: "local_dir", label: "图片本地目录", type: "text" },
+        { key: "download_timeout", label: "下载超时 (秒)", type: "number" },
+        { key: "user_agent", label: "User-Agent", type: "text" },
+      ];
+
+      const tableFields = [
+        { key: "border_style", label: "边框样式", type: "select", options: ["single", "double", "dotted", "dashed", "none"] },
+        { key: "border_color", label: "边框颜色 (HEX)", type: "text" },
+        { key: "border_width", label: "边框宽度 (1/8 pt)", type: "number" },
+        { key: "header_background_color", label: "表头背景色 (HEX)", type: "text", nullable: true },
+        { key: "cell_background_color", label: "单元格背景色 (HEX)", type: "text", nullable: true },
+        { key: "alternating_row_color", label: "斑马纹颜色 (HEX)", type: "text", nullable: true },
+        { key: "cell_padding_top", label: "单元格内边距-上 (pt)", type: "number" },
+        { key: "cell_padding_bottom", label: "单元格内边距-下 (pt)", type: "number" },
+        { key: "cell_padding_left", label: "单元格内边距-左 (pt)", type: "number" },
+        { key: "cell_padding_right", label: "单元格内边距-右 (pt)", type: "number" },
+        { key: "width_mode", label: "表格宽度模式", type: "select", options: ["auto", "full", "fixed"] },
+        { key: "width_inches", label: "固定宽度 (in)", type: "number", nullable: true },
+      ];
+
+      const styleFields = [
+        { key: "font_name", label: "字体", type: "text" },
+        { key: "font_size", label: "字号 (pt/中文字号)", type: "text" },
+        { key: "bold", label: "加粗", type: "checkbox" },
+        { key: "italic", label: "斜体", type: "checkbox" },
+        { key: "color", label: "字体颜色 (HEX)", type: "text" },
+        { key: "alignment", label: "对齐方式", type: "select", options: ["left", "center", "right", "justify"] },
+        { key: "line_spacing_rule", label: "行距模式", type: "select", options: ["single", "1.5", "double", "multiple", "exact", "at_least"] },
+        { key: "line_spacing_value", label: "行距数值", type: "number", nullable: true },
+        { key: "line_spacing", label: "行距倍数", type: "number" },
+        { key: "space_before", label: "段前间距 (pt)", type: "number" },
+        { key: "space_after", label: "段后间距 (pt)", type: "number" },
+        { key: "left_indent", label: "左缩进 (in)", type: "number" },
+        { key: "first_line_indent", label: "首行缩进 (字符)", type: "number" },
+        { key: "background_color", label: "背景色 (HEX)", type: "text", nullable: true },
+        { key: "is_heading", label: "作为标题", type: "checkbox" },
+        { key: "numbering_format", label: "标题编号格式", type: "select", nullable: true, options: ["chapter", "section", "chinese", "chinese_paren", "arabic", "arabic_paren", "arabic_bracket", "roman", "roman_lower", "letter", "letter_lower", "circle", "none"] },
+      ];
+
+      function deepClone(obj) {
+        return JSON.parse(JSON.stringify(obj));
+      }
+
+      function getByPath(obj, path) {
+        return path.split(".").reduce((acc, key) => (acc ? acc[key] : undefined), obj);
+      }
+
+      function setByPath(obj, path, value) {
+        const parts = path.split(".");
+        let cur = obj;
+        for (let i = 0; i < parts.length - 1; i++) {
+          const key = parts[i];
+          if (!cur[key] || typeof cur[key] !== "object") {
+            cur[key] = {};
+          }
+          cur = cur[key];
+        }
+        cur[parts[parts.length - 1]] = value;
+      }
+
+      function createInput(field, path, value) {
+        const wrapper = document.createElement("label");
+        wrapper.className = "grid gap-1 text-sm";
+
+        const label = document.createElement("span");
+        label.className = "text-slate-600";
+        label.textContent = field.label;
+        wrapper.appendChild(label);
+
+        let input;
+        if (field.type === "select") {
+          input = document.createElement("select");
+          input.className = "h-9 rounded border border-slate-200 px-2 text-sm";
+          const nullable = !!field.nullable;
+          if (nullable) {
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "(空)";
+            input.appendChild(opt);
+          }
+          field.options.forEach((opt) => {
+            const option = document.createElement("option");
+            option.value = opt;
+            option.textContent = opt;
+            input.appendChild(option);
+          });
+          input.value = value ?? "";
+        } else if (field.type === "checkbox") {
+          input = document.createElement("input");
+          input.type = "checkbox";
+          input.className = "h-4 w-4";
+          input.checked = Boolean(value);
+        } else {
+          input = document.createElement("input");
+          input.type = field.type === "number" ? "number" : "text";
+          input.step = field.type === "number" ? "any" : undefined;
+          input.className = "h-9 rounded border border-slate-200 px-2 text-sm";
+          if (value !== null && value !== undefined) {
+            input.value = value;
+          }
+        }
+
+        input.dataset.path = path;
+        input.dataset.type = field.type;
+        if (field.nullable) {
+          input.dataset.nullable = "true";
+        }
+
+        wrapper.appendChild(input);
+        return wrapper;
+      }
+
+      function renderFields(container, prefix, fields, config) {
+        container.innerHTML = "";
+        fields.forEach((field) => {
+          const path = `${prefix}.${field.key}`;
+          const value = getByPath(config, path);
+          container.appendChild(createInput(field, path, value));
+        });
+      }
+
+      function renderStyles(config) {
+        const container = document.getElementById("stylesContainer");
+        container.innerHTML = "";
+        const styles = config.styles || {};
+        Object.keys(styles).forEach((styleName) => {
+          const card = document.createElement("div");
+          card.className = "border border-slate-200 rounded-lg p-3";
+
+          const header = document.createElement("div");
+          header.className = "flex items-center justify-between mb-3";
+
+          const title = document.createElement("div");
+          title.className = "font-semibold text-sm";
+          title.textContent = styleName;
+
+          const removeBtn = document.createElement("button");
+          removeBtn.className = "text-xs text-red-600";
+          removeBtn.textContent = "移除";
+          removeBtn.addEventListener("click", () => {
+            currentConfig = collectConfig();
+            delete currentConfig.styles[styleName];
+            renderAll(currentConfig);
+          });
+
+          header.appendChild(title);
+          header.appendChild(removeBtn);
+          card.appendChild(header);
+
+          const grid = document.createElement("div");
+          grid.className = "grid gap-3";
+          styleFields.forEach((field) => {
+            const path = `styles.${styleName}.${field.key}`;
+            const value = getByPath(config, path);
+            grid.appendChild(createInput(field, path, value));
+          });
+
+          card.appendChild(grid);
+          container.appendChild(card);
+        });
+      }
+
+      function renderAll(config) {
+        renderFields(document.getElementById("documentFields"), "document", docFields, config);
+        renderFields(document.getElementById("imageFields"), "image", imageFields, config);
+        renderFields(document.getElementById("tableFields"), "table", tableFields, config);
+        renderStyles(config);
+        currentConfig = deepClone(config);
+      }
+
+      function getValueFromInput(input) {
+        const type = input.dataset.type;
+        const nullable = input.dataset.nullable === "true";
+        if (type === "checkbox") {
+          return input.checked;
+        }
+        if (type === "number") {
+          if (input.value === "") {
+            return nullable ? null : undefined;
+          }
+          const num = Number(input.value);
+          return Number.isFinite(num) ? num : undefined;
+        }
+        const value = input.value.trim();
+        if (nullable && value === "") {
+          return null;
+        }
+        return value;
+      }
+
+      function collectConfig() {
+        const config = deepClone(currentConfig || {});
+        document.querySelectorAll("[data-path]").forEach((input) => {
+          const value = getValueFromInput(input);
+          if (value === undefined) {
+            return;
+          }
+          setByPath(config, input.dataset.path, value);
+        });
+        return config;
+      }
+
+      async function loadDefaultConfig() {
+        const res = await fetch("/default-config");
+        if (!res.ok) {
+          throw new Error("无法获取默认配置");
+        }
+        defaultConfig = await res.json();
+        renderAll(defaultConfig);
+      }
+
+      document.getElementById("loadDefault").addEventListener("click", async () => {
+        if (defaultConfig) {
+          renderAll(defaultConfig);
+          configStatusEl.textContent = "已重置为默认配置";
+          return;
+        }
+        try {
+          await loadDefaultConfig();
+          configStatusEl.textContent = "已重置为默认配置";
+        } catch (err) {
+          configStatusEl.textContent = `失败: ${err}`;
+        }
+      });
+
+      document.getElementById("exportConfig").addEventListener("click", () => {
+        const config = collectConfig();
+        document.getElementById("configJson").value = JSON.stringify(config, null, 2);
+        configStatusEl.textContent = "已导出到配置 JSON";
+      });
+
+      document.getElementById("importConfig").addEventListener("click", () => {
+        const text = document.getElementById("configJson").value.trim();
+        if (!text) {
+          configStatusEl.textContent = "请输入配置 JSON";
+          return;
+        }
+        try {
+          const parsed = JSON.parse(text);
+          renderAll(parsed);
+          configStatusEl.textContent = "已从 JSON 导入配置";
+        } catch (err) {
+          configStatusEl.textContent = `JSON 解析失败: ${err}`;
+        }
+      });
+
+      document.getElementById("addStyle").addEventListener("click", () => {
+        const name = document.getElementById("newStyleName").value.trim();
+        if (!name) {
+          configStatusEl.textContent = "请输入样式名";
+          return;
+        }
+        currentConfig = collectConfig();
+        currentConfig.styles = currentConfig.styles || {};
+        if (currentConfig.styles[name]) {
+          configStatusEl.textContent = `样式已存在: ${name}`;
+          return;
+        }
+        const defaultFont = currentConfig.document?.default_font || "微软雅黑";
+        currentConfig.styles[name] = {
+          font_name: defaultFont,
+          font_size: 11,
+          bold: false,
+          italic: false,
+          color: "000000",
+          space_before: 0,
+          space_after: 6,
+          line_spacing: 1.0,
+          left_indent: 0,
+          background_color: null,
+          alignment: "left",
+          line_spacing_rule: "multiple",
+          line_spacing_value: null,
+          first_line_indent: 0,
+          is_heading: true,
+          numbering_format: null,
+        };
+        renderAll(currentConfig);
+        document.getElementById("newStyleName").value = "";
+        configStatusEl.textContent = `已添加样式: ${name}`;
+      });
+
+      document.getElementById("convertBtn").addEventListener("click", async () => {
+        const markdown = markdownEl.value.trim();
+        if (!markdown) {
+          statusEl.textContent = "请输入 Markdown 内容";
+          return;
+        }
+
+        const toc = document.getElementById("toc").checked;
+        const tocTitle = document.getElementById("tocTitle").value;
+        const tocLevel = parseInt(document.getElementById("tocLevel").value, 10) || 3;
+
+        let filename = "output.docx";
+        if (fileInput.files && fileInput.files[0]) {
+          const name = fileInput.files[0].name.replace(/\.[^.]+$/, "");
+          filename = `${name}.docx`;
+        }
+
+        const config = collectConfig();
+
+        statusEl.textContent = "正在转换...";
+
+        try {
+          const res = await fetch("/convert", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              markdown,
+              toc,
+              toc_title: tocTitle,
+              toc_level: tocLevel,
+              filename,
+              config,
+            }),
+          });
+
+          if (!res.ok) {
+            const msg = await res.text();
+            statusEl.textContent = `失败: ${msg}`;
+            return;
+          }
+
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          statusEl.textContent = "已生成并开始下载";
+        } catch (err) {
+          statusEl.textContent = `请求失败: ${err}`;
+        }
+      });
+
+      loadDefaultConfig().catch((err) => {
+        configStatusEl.textContent = `无法加载默认配置: ${err}`;
+      });
+    </script>
+  </body>
+</html>

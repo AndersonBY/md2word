@@ -27,12 +27,12 @@
 代码块：
 
 ```python
-def 斐波那契(n):
+def fibonacci(n):
     if n <= 1:
         return n
-    return 斐波那契(n-1) + 斐波那契(n-2)
+    return fibonacci(n-1) + fibonacci(n-2)
 
-print(斐波那契(10))
+print(fibonacci(10))
 ```
 
 ### 表格

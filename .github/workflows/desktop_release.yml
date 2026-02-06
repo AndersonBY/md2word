@@ -1,0 +1,114 @@
+name: Desktop App Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+          - os: ubuntu-latest
+            platform: linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pyinstaller
+      - name: Build desktop app
+        run: python -m PyInstaller md2word_demo.spec
+      - name: Package artifact
+        shell: bash
+        env:
+          ARTIFACT_SUFFIX: ${{ matrix.platform }}
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import sys
+          import zipfile
+
+          app_name = "md2word_demo"
+          dist_dir = pathlib.Path("dist")
+          if not dist_dir.exists():
+              print("dist folder not found", file=sys.stderr)
+              sys.exit(1)
+
+          candidates = [
+              dist_dir / f"{app_name}.app",
+              dist_dir / f"{app_name}.exe",
+              dist_dir / app_name,
+          ]
+          target = next((p for p in candidates if p.exists()), None)
+          if target is None:
+              matches = list(dist_dir.glob(f"{app_name}*"))
+              if matches:
+                  target = matches[0]
+          if target is None:
+              print("Build output not found in dist", file=sys.stderr)
+              print("dist entries:", [p.name for p in dist_dir.iterdir()], file=sys.stderr)
+              sys.exit(1)
+
+          release_dir = pathlib.Path("release")
+          release_dir.mkdir(exist_ok=True)
+          suffix = os.environ.get("ARTIFACT_SUFFIX", "unknown")
+          zip_path = release_dir / f"{app_name}-{suffix}.zip"
+
+          def add_path(zf, path, arc_root):
+              if path.is_dir():
+                  for p in path.rglob("*"):
+                      if p.is_file():
+                          zf.write(p, arc_root / p.relative_to(path))
+              else:
+                  zf.write(path, arc_root / path.name)
+
+          with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              if target.is_dir():
+                  add_path(zf, target, pathlib.Path(target.name))
+              else:
+                  zf.write(target, target.name)
+
+          print(f"Packaged {zip_path}")
+          PY
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: md2word_demo-${{ matrix.platform }}
+          path: release/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+      - name: Publish GitHub release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          name: Desktop App ${{ github.ref_name }}
+          commit: ${{ github.sha }}
+          allowUpdates: true
+          removeArtifacts: true
+          prerelease: false
+          artifacts: "release/**/*.zip"
