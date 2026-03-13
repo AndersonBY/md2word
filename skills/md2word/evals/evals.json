@@ -1,0 +1,23 @@
+{
+  "skill_name": "md2word",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我有一段 Markdown 文本，里面包含标题、表格、代码块和一个 LaTeX 公式 $E=mc^2$，帮我转成 Word 文档，要求用中文公文格式（黑体标题、仿宋正文、首行缩进两字符）。",
+      "expected_output": "生成一个 .docx 文件，包含正确的中文公文样式配置，LaTeX 公式被转换为 Word 原生公式，表格和代码块格式正确。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Convert this markdown file to a Word document with English academic paper styling: Times New Roman 12pt body, Arial headings, double line spacing, and add a table of contents at the beginning.",
+      "expected_output": "A .docx file with English academic styling, TOC generated, correct fonts and spacing applied.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "我需要把一个包含很多图片和嵌套列表的 Markdown 文件转成 Word，图片有些是网络链接有些是本地路径，要求表格有交替行颜色，代码块要有灰色背景。帮我写个 Python 脚本来完成这个转换。",
+      "expected_output": "一个 Python 脚本，使用 md2word API 进行转换，配置了表格交替行颜色和代码块背景色，正确处理图片。",
+      "files": []
+    }
+  ]
+}

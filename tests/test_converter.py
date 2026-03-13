@@ -1,12 +1,15 @@
 """Tests for md2word converter module."""
 
+import json
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from md2word import Config, convert, convert_file
+from md2word.__main__ import main
 from md2word.converter import (
     HeadingNumbering,
     hex_to_rgb,
@@ -250,3 +253,138 @@ class TestConvertFile:
         """Test that non-existent file raises error."""
         with pytest.raises(FileNotFoundError):
             convert_file("/nonexistent/file.md")
+
+
+class TestCLI:
+    """Tests for CLI entry point."""
+
+    def test_version(self, capsys):
+        """Test --version flag."""
+        with patch("sys.argv", ["md2word", "-v"]):
+            assert main() == 0
+        assert "md2word" in capsys.readouterr().out
+
+    def test_show_config_default(self, capsys):
+        """Test --show-config with default config."""
+        with patch("sys.argv", ["md2word", "--show-config"]):
+            assert main() == 0
+        output = capsys.readouterr().out
+        data = json.loads(output)
+        assert "document" in data
+        assert "styles" in data
+        assert "table" in data
+
+    def test_show_config_with_file(self, capsys, tmp_path):
+        """Test --show-config with a config file."""
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text(json.dumps({
+            "document": {"default_font": "Arial"},
+        }), encoding="utf-8")
+        with patch("sys.argv", ["md2word", "--show-config", "-c", str(cfg)]):
+            assert main() == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["document"]["default_font"] == "Arial"
+
+    def test_list_formats(self, capsys):
+        """Test --list-formats flag."""
+        with patch("sys.argv", ["md2word", "--list-formats"]):
+            assert main() == 0
+        output = capsys.readouterr().out
+        assert "chapter" in output
+        assert "section" in output
+        assert "chinese" in output
+        assert "第一章" in output
+
+    def test_init_config_creates_file(self, capsys, tmp_path):
+        """Test --init-config creates config with table block."""
+        cfg = tmp_path / "config.json"
+        with patch("sys.argv", ["md2word", "--init-config", "-c", str(cfg)]):
+            assert main() == 0
+        assert cfg.exists()
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+        assert "table" in data
+        assert "border_style" in data["table"]
+
+    def test_init_config_refuses_overwrite(self, capsys, tmp_path):
+        """Test --init-config refuses to overwrite existing file."""
+        cfg = tmp_path / "config.json"
+        cfg.write_text("{}", encoding="utf-8")
+        with patch("sys.argv", ["md2word", "--init-config", "-c", str(cfg)]):
+            assert main() == 1
+        assert "already exists" in capsys.readouterr().out
+
+    def test_config_not_found_explicit_warns(self, capsys, tmp_path):
+        """Test explicit -c with nonexistent file prints warning."""
+        md = tmp_path / "test.md"
+        md.write_text("# Hello", encoding="utf-8")
+        with patch("sys.argv", ["md2word", str(md), "-c", "nonexistent.json"]):
+            assert main() == 0
+        output = capsys.readouterr().out
+        assert "[WARN]" in output
+        assert "nonexistent.json" in output
+
+    def test_config_not_found_implicit_silent(self, capsys, tmp_path):
+        """Test no -c flag uses default config silently."""
+        md = tmp_path / "test.md"
+        md.write_text("# Hello", encoding="utf-8")
+        with patch("sys.argv", ["md2word", str(md), "-o", str(tmp_path / "out.docx")]):
+            assert main() == 0
+        output = capsys.readouterr().out
+        assert "[WARN]" not in output
+        assert "Using default config" in output
+
+    def test_validate_config_valid(self, capsys, tmp_path):
+        """Test --validate-config with valid config."""
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text(json.dumps({
+            "styles": {
+                "heading_1": {"font_name": "黑体", "bold": True},
+            },
+        }), encoding="utf-8")
+        with patch("sys.argv", ["md2word", "--validate-config", "-c", str(cfg)]):
+            assert main() == 0
+        assert "[OK]" in capsys.readouterr().out
+
+    def test_validate_config_invalid(self, capsys, tmp_path):
+        """Test --validate-config with invalid config."""
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text(json.dumps({
+            "styles": {
+                "heading_99": {"alignment": "middle"},
+            },
+        }), encoding="utf-8")
+        with patch("sys.argv", ["md2word", "--validate-config", "-c", str(cfg)]):
+            assert main() == 1
+        output = capsys.readouterr().out
+        assert "heading_99" in output
+        assert "middle" in output
+
+    def test_stdin_mode(self, capsys, tmp_path):
+        """Test reading from stdin with '-'."""
+        out = tmp_path / "output.docx"
+        with patch("sys.argv", ["md2word", "-", "-o", str(out)]):
+            with patch("sys.stdin") as mock_stdin:
+                mock_stdin.read.return_value = "# Hello\n\nWorld"
+                assert main() == 0
+        assert out.exists()
+
+    def test_stdin_requires_output(self, capsys):
+        """Test stdin mode requires -o flag."""
+        with patch("sys.argv", ["md2word", "-"]):
+            assert main() == 1
+        assert "-o/--output is required" in capsys.readouterr().out
+
+    def test_no_input_shows_help(self, capsys):
+        """Test no arguments shows help."""
+        with patch("sys.argv", ["md2word"]):
+            assert main() == 1
+
+    def test_config_source_shown(self, capsys, tmp_path):
+        """Test config source is printed during conversion."""
+        md = tmp_path / "test.md"
+        md.write_text("# Hello", encoding="utf-8")
+        cfg = tmp_path / "my.json"
+        cfg.write_text("{}", encoding="utf-8")
+        with patch("sys.argv", ["md2word", str(md), "-c", str(cfg)]):
+            assert main() == 0
+        assert "Using config:" in capsys.readouterr().out

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -231,6 +232,72 @@ class Config:
         """Get style configuration by name, returns default if not found."""
         return self.styles.get(style_name, StyleConfig(font_name=self.default_font))
 
+    def validate(self) -> list[str]:
+        """Validate configuration, return list of warnings."""
+        warnings: list[str] = []
+        known_styles = {
+            "heading_1", "heading_2", "heading_3", "heading_4",
+            "body", "code", "blockquote", "table_header", "table_cell",
+        }
+        known_alignments = {"left", "center", "right", "justify"}
+        known_spacing_rules = {"single", "1.5", "double", "multiple", "exact", "at_least"}
+        known_formats = {
+            "chapter", "section", "chinese", "chinese_paren",
+            "arabic", "arabic_paren", "arabic_bracket",
+            "roman", "roman_lower", "letter", "letter_lower", "circle", "none",
+        }
+        known_border_styles = {"single", "double", "dotted", "dashed", "none"}
+        known_width_modes = {"auto", "full", "fixed"}
+        hex_color_re = re.compile(r"^[0-9a-fA-F]{6}$")
+
+        for name, style in self.styles.items():
+            if name not in known_styles:
+                warnings.append(
+                    f"Unknown style key: {name} (supported: {', '.join(sorted(known_styles))})"
+                )
+            if style.alignment not in known_alignments:
+                warnings.append(
+                    f"styles.{name}.alignment: unknown value '{style.alignment}' "
+                    f"(supported: {', '.join(sorted(known_alignments))})"
+                )
+            if style.line_spacing_rule not in known_spacing_rules:
+                warnings.append(
+                    f"styles.{name}.line_spacing_rule: unknown value '{style.line_spacing_rule}' "
+                    f"(supported: {', '.join(sorted(known_spacing_rules))})"
+                )
+            if style.numbering_format and style.numbering_format not in known_formats:
+                if "{n}" not in style.numbering_format and "{cn}" not in style.numbering_format:
+                    warnings.append(
+                        f"styles.{name}.numbering_format: unknown value '{style.numbering_format}' "
+                        f"(supported: {', '.join(sorted(known_formats))}, or custom format with {{n}}/{{cn}})"
+                    )
+            if style.color and not hex_color_re.match(style.color):
+                warnings.append(f"styles.{name}.color: invalid hex color '{style.color}'")
+            if style.background_color and not hex_color_re.match(style.background_color):
+                warnings.append(
+                    f"styles.{name}.background_color: invalid hex color '{style.background_color}'"
+                )
+
+        t = self.table
+        if t.border_style not in known_border_styles:
+            warnings.append(
+                f"table.border_style: unknown value '{t.border_style}' "
+                f"(supported: {', '.join(sorted(known_border_styles))})"
+            )
+        if t.width_mode not in known_width_modes:
+            warnings.append(
+                f"table.width_mode: unknown value '{t.width_mode}' "
+                f"(supported: {', '.join(sorted(known_width_modes))})"
+            )
+        if t.border_color and not hex_color_re.match(t.border_color):
+            warnings.append(f"table.border_color: invalid hex color '{t.border_color}'")
+        if t.header_background_color and not hex_color_re.match(t.header_background_color):
+            warnings.append(
+                f"table.header_background_color: invalid hex color '{t.header_background_color}'"
+            )
+
+        return warnings
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -347,5 +414,19 @@ DEFAULT_CONFIG = {
         "local_dir": "./images",
         "download_timeout": 30,
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    },
+    "table": {
+        "border_style": "single",
+        "border_color": "000000",
+        "border_width": 4,
+        "header_background_color": None,
+        "cell_background_color": None,
+        "alternating_row_color": None,
+        "cell_padding_top": 2,
+        "cell_padding_bottom": 2,
+        "cell_padding_left": 5,
+        "cell_padding_right": 5,
+        "width_mode": "auto",
+        "width_inches": None,
     },
 }
