@@ -1,6 +1,6 @@
 [project]
 name = "md2word"
-version = "0.2.0"
+version = "0.2.1"
 description = "Convert Markdown files to Word documents with extensive customization"
 readme = "README.md"
 license = { text = "MIT" }
@@ -26,6 +26,7 @@ classifiers = [
     "Topic :: Text Processing :: Markup :: Markdown",
 ]
 dependencies = [
+    "beautifulsoup4>=4.12.0",
     "markdown2>=2.4.0",
     "python-docx>=1.0.0",
     "html-for-docx>=1.0.0",

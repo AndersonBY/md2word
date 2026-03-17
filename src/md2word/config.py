@@ -31,7 +31,7 @@ CHINESE_FONT_SIZE_MAP: dict[str, float] = {
 
 def parse_font_size(value: int | float | str) -> float:
     """Parse font size, supporting both numeric (points) and Chinese font sizes."""
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     if isinstance(value, str):
         value = value.strip()

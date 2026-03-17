@@ -9,7 +9,7 @@ from .config import CHINESE_FONT_SIZE_MAP, DEFAULT_CONFIG, Config, StyleConfig
 from .converter import convert, convert_file
 from .latex import extract_latex_formulas, latex_to_omml
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __all__ = [
     "Config",
     "StyleConfig",

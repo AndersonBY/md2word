@@ -7,11 +7,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from docx import Document
 
 from md2word import Config, convert, convert_file
 from md2word.__main__ import main
 from md2word.converter import (
     HeadingNumbering,
+    fix_markdown2_punctuated_emphasis_html,
     hex_to_rgb,
     number_to_chinese,
 )
@@ -215,6 +217,46 @@ def hello():
             output_path.unlink(missing_ok=True)
             os.rmdir(temp_dir)
 
+    def test_markdown2_punctuated_emphasis_compat(self, monkeypatch, tmp_path):
+        """Test compatibility fix for markdown2 versions that leak bold markers."""
+        from md2word import converter as converter_module
+
+        monkeypatch.setattr(converter_module, "_MARKDOWN2_PUNCTUATED_EMPHASIS_COMPAT", True)
+        monkeypatch.setattr(
+            converter_module.markdown2,
+            "markdown",
+            lambda *_args, **_kwargs: "<p>这种生产模式的核心优势在于**“去模具化”**。</p>",
+        )
+
+        output_path = tmp_path / "output.docx"
+        convert("ignored", output_path)
+
+        doc = Document(output_path)
+        paragraph = next(p for p in doc.paragraphs if "去模具化" in p.text)
+        assert any(run.text == "“去模具化”" and run.bold for run in paragraph.runs)
+
+    def test_markdown2_punctuated_emphasis_compat_mixed_html(self, monkeypatch, tmp_path):
+        """Test compatibility fix for malformed mixed HTML left by markdown2."""
+        from md2word import converter as converter_module
+
+        monkeypatch.setattr(converter_module, "_MARKDOWN2_PUNCTUATED_EMPHASIS_COMPAT", True)
+        monkeypatch.setattr(
+            converter_module.markdown2,
+            "markdown",
+            lambda *_args, **_kwargs: (
+                "<p>基于**分布式卡尔曼滤波（Distributed Kalman Filtering）"
+                "<strong>或</strong>粒子滤波（Particle Filtering）**的高级算法</p>"
+            ),
+        )
+
+        output_path = tmp_path / "output.docx"
+        convert("ignored", output_path)
+
+        doc = Document(output_path)
+        paragraph = next(p for p in doc.paragraphs if "分布式卡尔曼滤波" in p.text)
+        assert "**" not in paragraph.text
+        assert any("分布式卡尔曼滤波" in run.text and run.bold for run in paragraph.runs)
+
 
 class TestConvertFile:
     """Tests for convert_file function."""
@@ -388,3 +430,52 @@ class TestCLI:
         with patch("sys.argv", ["md2word", str(md), "-c", str(cfg)]):
             assert main() == 0
         assert "Using config:" in capsys.readouterr().out
+
+
+class TestMarkdown2CompatHelpers:
+    """Tests for markdown2 compatibility helpers."""
+
+    def test_fix_punctuated_emphasis_in_html(self, monkeypatch):
+        """Test leftover strong markdown is converted inside normal HTML text nodes."""
+        from md2word import converter as converter_module
+
+        monkeypatch.setattr(converter_module, "_MARKDOWN2_PUNCTUATED_EMPHASIS_COMPAT", True)
+        html = "<p>其核心是**“工厂即武器”**的工业哲学。</p>"
+
+        fixed = fix_markdown2_punctuated_emphasis_html(html)
+
+        assert "<strong>“工厂即武器”</strong>" in fixed
+        assert "**“工厂即武器”**" not in fixed
+
+    def test_fix_punctuated_emphasis_in_mixed_html(self, monkeypatch):
+        """Test leftover strong markdown is repaired across inline HTML nodes."""
+        from md2word import converter as converter_module
+
+        monkeypatch.setattr(converter_module, "_MARKDOWN2_PUNCTUATED_EMPHASIS_COMPAT", True)
+        html = (
+            "<p>基于**分布式卡尔曼滤波（Distributed Kalman Filtering）"
+            "<strong>或</strong>粒子滤波（Particle Filtering）**的高级算法</p>"
+        )
+
+        fixed = fix_markdown2_punctuated_emphasis_html(html)
+
+        assert (
+            "<p>基于<strong>分布式卡尔曼滤波（Distributed Kalman Filtering）"
+            "或粒子滤波（Particle Filtering）</strong>的高级算法</p>"
+        ) in fixed
+        assert "**" not in fixed
+
+    def test_fix_punctuated_emphasis_skips_code_nodes(self, monkeypatch):
+        """Test code/pre blocks are not rewritten by the compatibility layer."""
+        from md2word import converter as converter_module
+
+        monkeypatch.setattr(converter_module, "_MARKDOWN2_PUNCTUATED_EMPHASIS_COMPAT", True)
+        html = (
+            "<p>a**“b”**c</p>"
+            "<pre><code>a**“b”**c</code></pre>"
+        )
+
+        fixed = fix_markdown2_punctuated_emphasis_html(html)
+
+        assert "<p>a<strong>“b”</strong>c</p>" in fixed
+        assert "<code>a**“b”**c</code>" in fixed

@@ -6,14 +6,19 @@ Converts Markdown content to Word documents.
 from __future__ import annotations
 
 import base64
+import html
 import re
+import unicodedata
 import uuid
+from collections.abc import Sequence
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
 import markdown2
+from bs4 import BeautifulSoup
+from bs4.element import NavigableString, PageElement, Tag
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK, WD_LINE_SPACING
 from docx.image.exceptions import UnrecognizedImageError
@@ -23,11 +28,26 @@ from docx.shared import Inches, Pt, RGBColor
 from html4docx import HtmlToDocx
 from PIL import Image
 
-from .config import Config, StyleConfig, TableConfig
+from .config import Config, StyleConfig
 from .latex import extract_latex_formulas, replace_formula_placeholders
 
 if TYPE_CHECKING:
     pass
+
+
+def _markdown2_has_punctuated_emphasis_regression() -> bool:
+    """Detect markdown2 versions that miss strong/emphasis around punctuation-adjacent spans."""
+    probe = 'a**“b”**c'
+    try:
+        return "<strong>" not in markdown2.markdown(probe)
+    except Exception:
+        return False
+
+
+_MARKDOWN2_PUNCTUATED_EMPHASIS_COMPAT = _markdown2_has_punctuated_emphasis_regression()
+_LEFTOVER_STRONG_RE = re.compile(r"(?<!\\)(?<!\*)\*\*(?=\S)(?P<content>.+?\S)\*\*(?!\*)")
+_LEFTOVER_EM_RE = re.compile(r"(?<!\\)(?<!\*)\*(?=\S)(?P<content>.+?\S)\*(?!\*)")
+_HTML_SKIP_TAGS = {"code", "pre", "script", "style"}
 
 
 def print_info(message: str) -> None:
@@ -38,6 +58,267 @@ def print_info(message: str) -> None:
 def print_error(message: str) -> None:
     """Print error message."""
     print(f"[ERROR] {message}")
+
+
+def _is_punctuation_char(char: str) -> bool:
+    """Return whether a character is Unicode punctuation."""
+    return bool(char) and unicodedata.category(char).startswith("P")
+
+
+def _should_fix_leftover_emphasis(text: str, match: re.Match[str]) -> bool:
+    """Fix only the punctuation-adjacent emphasis spans markdown2 2.5.5 regressed on."""
+    content = match.group("content")
+    if not content:
+        return False
+
+    if not (_is_punctuation_char(content[0]) or _is_punctuation_char(content[-1])):
+        return False
+
+    before = text[match.start() - 1] if match.start() > 0 else ""
+    after = text[match.end()] if match.end() < len(text) else ""
+    return before.isalnum() or after.isalnum()
+
+
+def _replace_leftover_emphasis(text: str, pattern: re.Pattern[str], tag: str) -> str:
+    """Convert markdown emphasis syntax that markdown2 left in a text node into HTML tags."""
+
+    def repl(match: re.Match[str]) -> str:
+        if not _should_fix_leftover_emphasis(text, match):
+            return match.group(0)
+        content = html.escape(match.group("content"))
+        return f"<{tag}>{content}</{tag}>"
+
+    return pattern.sub(repl, text)
+
+
+def _node_text(node: PageElement) -> str:
+    """Return rendered text for a direct child node."""
+    if isinstance(node, NavigableString):
+        return str(node)
+    if isinstance(node, Tag):
+        return node.get_text()
+    return str(node)
+
+
+def _is_delimiter_at(text: str, pos: int, marker: str) -> bool:
+    """Return whether marker at pos is a standalone emphasis delimiter."""
+    if text[pos : pos + len(marker)] != marker:
+        return False
+    if pos > 0 and text[pos - 1] == "\\":
+        return False
+
+    end = pos + len(marker)
+    if marker == "**":
+        if pos > 0 and text[pos - 1] == "*":
+            return False
+        if end < len(text) and text[end] == "*":
+            return False
+    else:
+        if pos > 0 and text[pos - 1] == "*":
+            return False
+        if end < len(text) and text[end] == "*":
+            return False
+
+    return True
+
+
+def _find_delimiter(text: str, marker: str, start: int = 0) -> int:
+    """Find the next standalone emphasis delimiter in a text node."""
+    pos = text.find(marker, start)
+    while pos != -1:
+        if _is_delimiter_at(text, pos, marker):
+            return pos
+        pos = text.find(marker, pos + 1)
+    return -1
+
+
+def _char_before(children: Sequence[PageElement], idx: int, pos: int) -> str:
+    """Return the rendered character immediately before a marker."""
+    text = _node_text(children[idx])
+    if pos > 0:
+        return text[pos - 1]
+    for prev_idx in range(idx - 1, -1, -1):
+        prev_text = _node_text(children[prev_idx])
+        if prev_text:
+            return prev_text[-1]
+    return ""
+
+
+def _char_after(children: Sequence[PageElement], idx: int, pos: int) -> str:
+    """Return the rendered character immediately after a marker."""
+    text = _node_text(children[idx])
+    if pos < len(text):
+        return text[pos]
+    for next_idx in range(idx + 1, len(children)):
+        next_text = _node_text(children[next_idx])
+        if next_text:
+            return next_text[0]
+    return ""
+
+
+def _should_fix_leftover_emphasis_chars(
+    before: str, after: str, content_first: str, content_last: str
+) -> bool:
+    """Apply the markdown2 regression guard using explicit boundary characters."""
+    if not content_first or not content_last:
+        return False
+    if content_first.isspace() or content_last.isspace():
+        return False
+    if not (_is_punctuation_char(content_first) or _is_punctuation_char(content_last)):
+        return False
+    return before.isalnum() or after.isalnum()
+
+
+def _append_child(wrapper: Tag, node: PageElement) -> None:
+    """Append node into wrapper, flattening redundant nested emphasis tags."""
+    if isinstance(node, Tag) and node.name == wrapper.name:
+        for child in list(node.contents):
+            wrapper.append(child.extract())
+        node.decompose()
+        return
+    wrapper.append(node)
+
+
+def _range_crosses_skip_tag(children: Sequence[PageElement], start_idx: int, end_idx: int) -> bool:
+    """Return whether an emphasis range crosses tags that should stay literal."""
+    return any(
+        isinstance(node, Tag) and node.name in _HTML_SKIP_TAGS for node in children[start_idx + 1 : end_idx]
+    )
+
+
+def _find_cross_node_emphasis_range(
+    parent: Tag, marker: str
+) -> tuple[int, int, int, int] | None:
+    """Find a leftover emphasis span that crosses direct child nodes."""
+    children = list(parent.contents)
+
+    for open_idx, child in enumerate(children):
+        if not isinstance(child, NavigableString):
+            continue
+
+        text = str(child)
+        open_pos = _find_delimiter(text, marker)
+        while open_pos != -1:
+            before = _char_before(children, open_idx, open_pos)
+            content_first = _char_after(children, open_idx, open_pos + len(marker))
+            if content_first.isspace():
+                open_pos = _find_delimiter(text, marker, open_pos + 1)
+                continue
+
+            for close_idx in range(open_idx + 1, len(children)):
+                if _range_crosses_skip_tag(children, open_idx, close_idx):
+                    break
+                close_child = children[close_idx]
+                if not isinstance(close_child, NavigableString):
+                    continue
+
+                close_text = str(close_child)
+                close_pos = _find_delimiter(close_text, marker)
+                while close_pos != -1:
+                    content_last = _char_before(children, close_idx, close_pos)
+                    after = _char_after(children, close_idx, close_pos + len(marker))
+                    if _should_fix_leftover_emphasis_chars(before, after, content_first, content_last):
+                        return (open_idx, open_pos, close_idx, close_pos)
+                    close_pos = _find_delimiter(close_text, marker, close_pos + 1)
+
+            open_pos = _find_delimiter(text, marker, open_pos + 1)
+
+    return None
+
+
+def _wrap_cross_node_emphasis(
+    soup: BeautifulSoup, parent: Tag, marker: str, tag_name: str, match: tuple[int, int, int, int]
+) -> None:
+    """Wrap a leftover emphasis span that crosses direct child nodes."""
+    open_idx, open_pos, close_idx, close_pos = match
+    children = list(parent.contents)
+    open_node = children[open_idx]
+    close_node = children[close_idx]
+    open_text = str(open_node)
+    close_text = str(close_node)
+
+    prefix = open_text[:open_pos]
+    start_content = open_text[open_pos + len(marker) :]
+    end_content = close_text[:close_pos]
+    suffix = close_text[close_pos + len(marker) :]
+
+    wrapper = soup.new_tag(tag_name)
+    if prefix:
+        open_node.insert_before(NavigableString(prefix))
+    open_node.insert_before(wrapper)
+
+    if start_content:
+        wrapper.append(NavigableString(start_content))
+
+    current = open_node.next_sibling
+    while current is not None and current is not close_node:
+        next_sibling = current.next_sibling
+        _append_child(wrapper, current.extract())
+        current = next_sibling
+
+    if end_content:
+        wrapper.append(NavigableString(end_content))
+
+    open_node.extract()
+    close_node.extract()
+
+    if suffix:
+        wrapper.insert_after(NavigableString(suffix))
+
+
+def _repair_cross_node_emphasis(soup: BeautifulSoup, marker: str, tag_name: str) -> None:
+    """Repair leftover emphasis that spans multiple inline nodes."""
+    while True:
+        updated = False
+        for parent in soup.find_all(True):
+            if parent.name in _HTML_SKIP_TAGS or any(ancestor.name in _HTML_SKIP_TAGS for ancestor in parent.parents):
+                continue
+
+            match = _find_cross_node_emphasis_range(parent, marker)
+            if match is None:
+                continue
+
+            _wrap_cross_node_emphasis(soup, parent, marker, tag_name, match)
+            updated = True
+            break
+
+        if not updated:
+            return
+
+
+def fix_markdown2_punctuated_emphasis_html(html_content: str) -> str:
+    """Repair punctuation-adjacent emphasis spans left unparsed by markdown2 2.5.5+."""
+    if not _MARKDOWN2_PUNCTUATED_EMPHASIS_COMPAT or "*" not in html_content:
+        return html_content
+
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    for text_node in list(soup.find_all(string=True)):
+        if any(parent.name in _HTML_SKIP_TAGS for parent in text_node.parents):
+            continue
+
+        original = str(text_node)
+        replaced = _replace_leftover_emphasis(original, _LEFTOVER_STRONG_RE, "strong")
+        replaced = _replace_leftover_emphasis(replaced, _LEFTOVER_EM_RE, "em")
+        if replaced == original:
+            continue
+
+        fragment = BeautifulSoup(replaced, "html.parser")
+        new_nodes = list(fragment.contents)
+        if not new_nodes:
+            continue
+
+        first = new_nodes[0]
+        text_node.replace_with(first)
+        current = first
+        for node in new_nodes[1:]:
+            current.insert_after(node)
+            current = node
+
+    _repair_cross_node_emphasis(soup, "**", "strong")
+    _repair_cross_node_emphasis(soup, "*", "em")
+
+    return str(soup)
 
 
 def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -434,7 +715,7 @@ def replace_blockquote_placeholders(document, blockquotes: list[str], config: Co
 
     style_config = config.get_style("blockquote")
 
-    for i, paragraph in enumerate(document.paragraphs):
+    for paragraph in document.paragraphs:
         text = paragraph.text.strip()
         for idx, quote_text in enumerate(blockquotes):
             placeholder = f"__BLOCKQUOTE_PLACEHOLDER_{idx}__"
@@ -545,9 +826,6 @@ def extract_code_blocks(html_content: str) -> tuple[str, list[dict], list[str]]:
 
 def add_code_block_to_document(paragraph, code_text: str, config: Config) -> None:
     """Replace a placeholder paragraph with properly formatted code block."""
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-
     code_style = config.get_style("code")
     font_name = code_style.font_name
     font_size = code_style.font_size
@@ -864,8 +1142,6 @@ def apply_styles_to_document(document, config: Config) -> None:
 
 def apply_table_styles(document, config: Config) -> None:
     """Apply table styling from configuration."""
-    from docx.shared import Twips
-
     table_config = config.table
 
     # Border style mapping
@@ -905,7 +1181,7 @@ def apply_table_styles(document, config: Config) -> None:
 
         # Apply borders and cell styles
         for i, row in enumerate(table.rows):
-            for j, cell in enumerate(row.cells):
+            for cell in row.cells:
                 # Apply text styles
                 for paragraph in cell.paragraphs:
                     if i == 0:
@@ -1045,6 +1321,7 @@ def convert(
         processed_content,
         extras=["tables", "cuddled-lists", "fenced-code-blocks", "header-ids"],
     )
+    html_content = fix_markdown2_punctuated_emphasis_html(html_content)
 
     # Process HTML images
     html_content = sanitize_html_images(html_content, config)
@@ -1149,7 +1426,7 @@ def convert_file(
     # Load config
     if config is None:
         config = Config()
-    elif isinstance(config, (str, Path)):
+    elif isinstance(config, str | Path):
         config = Config.from_file(config)
 
     # Read markdown content

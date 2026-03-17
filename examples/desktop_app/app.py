@@ -1,4 +1,5 @@
 import argparse
+import importlib
 import json
 import re
 import sys
@@ -8,14 +9,17 @@ from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if SRC.exists() and str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from md2word import convert
-from md2word.config import Config, DEFAULT_CONFIG
+convert = importlib.import_module("md2word").convert
+_config_module = importlib.import_module("md2word.config")
+Config = _config_module.Config
+DEFAULT_CONFIG = _config_module.DEFAULT_CONFIG
 
 HERE = Path(__file__).resolve().parent
 if hasattr(sys, "_MEIPASS"):
@@ -163,8 +167,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def log_message(self, fmt, *args):
-        line = "%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), fmt % args)
+    def log_message(self, format: str, *args: Any) -> None:
+        message = format % args if args else format
+        line = f"{self.address_string()} - - [{self.log_date_time_string()}] {message}\n"
         if sys.stderr:
             sys.stderr.write(line)
         else:
