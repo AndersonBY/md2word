@@ -3,8 +3,10 @@
 import json
 import os
 import tempfile
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
+from xml.etree import ElementTree as ET
 
 import pytest
 from docx import Document
@@ -141,6 +143,32 @@ class TestHeadingNumbering:
 class TestConvert:
     """Tests for convert function."""
 
+    @staticmethod
+    def _docx_hyperlinks(docx_path: Path) -> list[tuple[str, str]]:
+        """Return (target, text) hyperlink pairs from a generated docx."""
+        with zipfile.ZipFile(docx_path) as archive:
+            document_root = ET.fromstring(archive.read("word/document.xml"))
+            rels_root = ET.fromstring(archive.read("word/_rels/document.xml.rels"))
+
+        namespaces = {
+            "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+            "pr": "http://schemas.openxmlformats.org/package/2006/relationships",
+        }
+        relationship_targets = {
+            rel.attrib["Id"]: rel.attrib["Target"]
+            for rel in rels_root.findall(".//pr:Relationship", namespaces)
+            if rel.attrib.get("Type", "").endswith("/hyperlink")
+        }
+        hyperlink_id_attr = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+
+        return [
+            (
+                relationship_targets.get(hyperlink.attrib.get(hyperlink_id_attr), ""),
+                "".join(text.text or "" for text in hyperlink.findall(".//w:t", namespaces)),
+            )
+            for hyperlink in document_root.findall(".//w:hyperlink", namespaces)
+        ]
+
     def test_simple_conversion(self):
         """Test simple markdown conversion."""
         markdown = "# Hello World\n\nThis is a test."
@@ -216,6 +244,23 @@ def hello():
         finally:
             output_path.unlink(missing_ok=True)
             os.rmdir(temp_dir)
+
+    def test_inline_code_link_in_list_preserves_hyperlink(self, tmp_path):
+        """Test inline-code styling does not remove hyperlinks in list items."""
+        markdown = "1. Link [Go SDK `objects.go`](https://github.com/anduril/lattice-sdk-go/blob/master/objects.go) end."
+        output_path = tmp_path / "output.docx"
+
+        convert(markdown, output_path)
+
+        hyperlinks = self._docx_hyperlinks(output_path)
+        assert (
+            "https://github.com/anduril/lattice-sdk-go/blob/master/objects.go",
+            "Go SDK objects.go",
+        ) in hyperlinks
+
+        with zipfile.ZipFile(output_path) as archive:
+            document_text = archive.read("word/document.xml").decode("utf-8")
+        assert "⟦CODE⟧" not in document_text
 
     def test_markdown2_punctuated_emphasis_compat(self, monkeypatch, tmp_path):
         """Test compatibility fix for markdown2 versions that leak bold markers."""
