@@ -11,7 +11,7 @@ from xml.etree import ElementTree as ET
 import pytest
 from docx import Document
 
-from md2word import Config, convert, convert_file
+from md2word import Config, StyleConfig, convert, convert_file
 from md2word.__main__ import main
 from md2word.converter import (
     HeadingNumbering,
@@ -301,6 +301,46 @@ def hello():
         paragraph = next(p for p in doc.paragraphs if "分布式卡尔曼滤波" in p.text)
         assert "**" not in paragraph.text
         assert any("分布式卡尔曼滤波" in run.text and run.bold for run in paragraph.runs)
+
+    def test_image_paragraph_does_not_inherit_exact_body_line_spacing(self, tmp_path):
+        """Image-only paragraphs must not be clipped by exact body line spacing."""
+        from PIL import Image
+
+        image_path = tmp_path / "gantt.png"
+        Image.new("RGB", (800, 360), "white").save(image_path)
+
+        config = Config()
+        config.styles["body"] = StyleConfig(
+            font_name="仿宋",
+            font_size=14,
+            alignment="justify",
+            line_spacing_rule="exact",
+            line_spacing_value=28,
+            first_line_indent=2,
+        )
+        output_path = tmp_path / "output.docx"
+
+        convert(f"Before\n\n![]({image_path.as_posix()})\n\nAfter", output_path, config=config)
+
+        with zipfile.ZipFile(output_path) as archive:
+            document_root = ET.fromstring(archive.read("word/document.xml"))
+
+        namespaces = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+        image_paragraphs = [
+            paragraph
+            for paragraph in document_root.findall(".//w:p", namespaces)
+            if paragraph.find(".//w:drawing", namespaces) is not None
+        ]
+        assert len(image_paragraphs) == 1
+
+        paragraph_properties = image_paragraphs[0].find("w:pPr", namespaces)
+        spacing = paragraph_properties.find("w:spacing", namespaces) if paragraph_properties is not None else None
+        indent = paragraph_properties.find("w:ind", namespaces) if paragraph_properties is not None else None
+
+        line_rule_attr = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}lineRule"
+        first_line_attr = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}firstLine"
+        assert spacing is None or spacing.attrib.get(line_rule_attr) != "exact"
+        assert indent is None or first_line_attr not in indent.attrib
 
 
 class TestConvertFile:

@@ -94,12 +94,42 @@ def is_code_block_paragraph(paragraph) -> bool:
     return False
 
 
+def is_image_only_paragraph(paragraph) -> bool:
+    """Check whether a paragraph contains only drawing content."""
+    return bool(paragraph._element.findall(f".//{qn('w:drawing')}")) and not paragraph.text.strip()
+
+
+def apply_image_paragraph_layout(paragraph) -> None:
+    """Apply layout that lets inline images use their natural height."""
+    paragraph_format = paragraph.paragraph_format
+    paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    paragraph_format.space_before = Pt(6)
+    paragraph_format.space_after = Pt(6)
+
+    paragraph_properties = paragraph._element.get_or_add_pPr()
+
+    spacing = paragraph_properties.find(qn("w:spacing"))
+    if spacing is not None:
+        for attr in (qn("w:line"), qn("w:lineRule")):
+            if attr in spacing.attrib:
+                del spacing.attrib[attr]
+
+    indent = paragraph_properties.find(qn("w:ind"))
+    if indent is not None:
+        for attr in (qn("w:firstLine"), qn("w:hanging")):
+            if attr in indent.attrib:
+                del indent.attrib[attr]
+
+
 def apply_styles_to_document(document, config: Config) -> None:
     """Apply style configuration to a document."""
     numbering = HeadingNumbering()
 
     for paragraph in document.paragraphs:
         if is_code_block_paragraph(paragraph):
+            continue
+        if is_image_only_paragraph(paragraph):
+            apply_image_paragraph_layout(paragraph)
             continue
 
         heading_level = get_heading_level(paragraph)
@@ -213,6 +243,7 @@ __all__ = [
     "apply_style_to_run",
     "apply_styles_to_document",
     "apply_table_styles",
+    "is_image_only_paragraph",
     "get_heading_level",
     "is_code_block_paragraph",
 ]
