@@ -285,11 +285,9 @@ def style_inline_code_in_document(document, config: Config) -> None:
     code_font_size = code_style.font_size
     bg_color = code_style.background_color or "f5f5f5"
 
-    for paragraph in document.paragraphs:
-        if "⟦CODE⟧" not in paragraph.text:
-            continue
-
-        for child in list(paragraph._p):
+    # document.paragraphs excludes paragraphs inside table cells.
+    for paragraph_element in document._element.body.iter(qn("w:p")):
+        for child in list(paragraph_element):
             if child.tag == qn("w:r"):
                 _replace_inline_code_markers_in_run_element(child, code_font_name, code_font_size, bg_color)
             elif child.tag == qn("w:hyperlink"):

@@ -10,6 +10,7 @@ from xml.etree import ElementTree as ET
 
 import pytest
 from docx import Document
+from docx.oxml.ns import qn
 
 from md2word import Config, StyleConfig, convert, convert_file
 from md2word.__main__ import main
@@ -225,6 +226,30 @@ class TestConvert:
         finally:
             output_path.unlink(missing_ok=True)
             os.rmdir(temp_dir)
+
+    def test_inline_code_in_table_cell_is_styled(self, tmp_path):
+        """Test inline-code markers are replaced inside table cells."""
+        markdown = """
+| 台账编号 | 已收材料准确文件名或材料名称 |
+| --- | --- |
+| R01 | `需求意见反馈.md`、`需求意见反馈.docx` |
+"""
+        output_path = tmp_path / "output.docx"
+
+        convert(markdown, output_path)
+
+        document = Document(output_path)
+        cell = document.tables[0].cell(1, 1)
+        assert cell.text == "需求意见反馈.md、需求意见反馈.docx"
+
+        code_texts = {"需求意见反馈.md", "需求意见反馈.docx"}
+        code_runs = [run for paragraph in cell.paragraphs for run in paragraph.runs if run.text in code_texts]
+        assert {run.text for run in code_runs} == code_texts
+
+        code_style = Config().get_style("code")
+        expected_fill = code_style.background_color or "f5f5f5"
+        assert all(run.font.name == code_style.font_name for run in code_runs)
+        assert all(run._r.rPr.find(qn("w:shd")).get(qn("w:fill")) == expected_fill for run in code_runs)
 
     def test_with_code_block(self):
         """Test conversion with code block."""
